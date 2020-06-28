@@ -1429,22 +1429,25 @@ fhandler_fifo::close ()
       owner_unlock ();
       if (dec_nreaders () == 0)
 	ResetEvent (read_ready);
-      else if (find_new_owner && !IsEventSignalled (owner_found_evt))
+      else if (find_new_owner)
 	{
+	  /* As long as there are still readers open, we should be
+	     able to quickly find a new owner.  But we don't want to
+	     loop forever if something goes wrong.  For example, a
+	     process holding an open reader might abort without
+	     decrementing shmem->_nreaders. */
+	  int retries = 1000;
 	  bool found = false;
-	  while (nreaders () > 0 && !found)
+
+	  while (nreaders () > 0 && !found && retries-- > 0
+		 && !IsEventSignalled (owner_found_evt))
 	    {
-	      if (WaitForSingleObject (owner_found_evt, 1) == WAIT_OBJECT_0)
+	      owner_lock ();
+	      if (get_owner ()) /* We missed owner_found_evt? */
 		found = true;
 	      else
-		{
-		  owner_lock ();
-		  if (get_owner ()) /* We missed owner_found_evt? */
-		    found = true;
-		  else
-		    owner_needed ();
-		  owner_unlock ();
-		}
+		owner_needed ();
+	      owner_unlock ();
 	    }
 	}
       close_all_handlers ();
