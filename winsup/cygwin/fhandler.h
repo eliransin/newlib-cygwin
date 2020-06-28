@@ -1329,6 +1329,7 @@ class fifo_shmem_t
     _sh_fc_handler_updated;
 
 public:
+  int nreaders () { return (int) _nreaders; }
   int inc_nreaders () { return (int) InterlockedIncrement (&_nreaders); }
   int dec_nreaders () { return (int) InterlockedDecrement (&_nreaders); }
 
@@ -1413,6 +1414,7 @@ class fhandler_fifo: public fhandler_base
   int reopen_shared_fc_handler ();
   int remap_shared_fc_handler (size_t);
 
+  int nreaders () { return shmem->nreaders (); }
   int inc_nreaders () { return shmem->inc_nreaders (); }
   int dec_nreaders () { return shmem->dec_nreaders (); }
 

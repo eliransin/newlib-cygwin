@@ -1432,23 +1432,20 @@ fhandler_fifo::close ()
       else if (find_new_owner && !IsEventSignalled (owner_found_evt))
 	{
 	  bool found = false;
-	  do
-	    if (dec_nreaders () >= 0)
-	      {
-		/* There's still another reader open. */
-		if (WaitForSingleObject (owner_found_evt, 1) == WAIT_OBJECT_0)
-		  found = true;
-		else
-		  {
-		    owner_lock ();
-		    if (get_owner ()) /* We missed owner_found_evt? */
-		      found = true;
-		    else
-		      owner_needed ();
-		    owner_unlock ();
-		  }
-	      }
-	  while (inc_nreaders () > 0 && !found);
+	  while (nreaders () > 0 && !found)
+	    {
+	      if (WaitForSingleObject (owner_found_evt, 1) == WAIT_OBJECT_0)
+		found = true;
+	      else
+		{
+		  owner_lock ();
+		  if (get_owner ()) /* We missed owner_found_evt? */
+		    found = true;
+		  else
+		    owner_needed ();
+		  owner_unlock ();
+		}
+	    }
 	}
       close_all_handlers ();
       if (fc_handler)
