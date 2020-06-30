@@ -405,6 +405,7 @@ fhandler_fifo::update_my_handlers ()
 	  return -1;
 	}
       fc.state = shared_fc_handler[i].state;
+      fc.last_read = shared_fc_handler[i].last_read;
     }
   return 0;
 }
@@ -1253,15 +1254,44 @@ fhandler_fifo::raw_read (void *in_ptr, size_t& len)
       /* No one else can take ownership while we hold the reading_lock. */
       reading_lock ();
       take_ownership ();
-      /* Poll the connected clients for input. */
-      int nconnected = 0;
+      /* Poll the connected clients for input.  Make two passes.  On
+	 the first pass, just try to read from the client from which
+	 we last read successfully.  This should minimize
+	 interleaving of writes from different clients. */
       fifo_client_lock ();
+      /* First pass. */
+      int last = -1;
+      for (int i = 0; i < nhandlers; i++)
+	if (fc_handler[i].last_read)
+	  {
+	    last = i;
+	    break;
+	  }
+      if (last >= 0 && fc_handler[last].state >= fc_closing)
+	{
+	  NTSTATUS status;
+	  IO_STATUS_BLOCK io;
+
+	  status = NtReadFile (fc_handler[last].h, NULL, NULL, NULL,
+			       &io, in_ptr, len, NULL, NULL);
+	  if ((NT_SUCCESS (status) || status == STATUS_BUFFER_OVERFLOW)
+	    /* io.Information is supposedly valid in latter case. */
+	      && io.Information > 0)
+	    {
+	      len = io.Information;
+	      fifo_client_unlock ();
+	      reading_unlock ();
+	      return;
+	    }
+	}
+
+      /* Second pass. */
+      int nconnected = 0;
       for (int i = 0; i < nhandlers; i++)
 	if (fc_handler[i].state >= fc_closing)
 	  {
 	    NTSTATUS status;
 	    IO_STATUS_BLOCK io;
-	    size_t nbytes = 0;
 
 	    nconnected++;
 	    status = NtReadFile (fc_handler[i].h, NULL, NULL, NULL,
@@ -1270,11 +1300,11 @@ fhandler_fifo::raw_read (void *in_ptr, size_t& len)
 	      {
 	      case STATUS_SUCCESS:
 	      case STATUS_BUFFER_OVERFLOW:
-		/* io.Information is supposedly valid. */
-		nbytes = io.Information;
-		if (nbytes > 0)
+		if (io.Information > 0)
 		  {
-		    len = nbytes;
+		    len = io.Information;
+		    fc_handler[last].last_read = false;
+		    fc_handler[i].last_read = true;
 		    fifo_client_unlock ();
 		    reading_unlock ();
 		    return;
