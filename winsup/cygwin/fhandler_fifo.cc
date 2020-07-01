@@ -1281,6 +1281,7 @@ fhandler_fifo::raw_read (void *in_ptr, size_t& len)
 	      len = io.Information;
 	      fifo_client_unlock ();
 	      reading_unlock ();
+	      debug_printf ("Got %u bytes on first pass", len);
 	      return;
 	    }
 	}
@@ -1479,6 +1480,8 @@ fhandler_fifo::close ()
 		owner_needed ();
 	      owner_unlock ();
 	    }
+	  debug_printf ("found = %d, retries = %d, nreaders = %d",
+			found, retries, nreaders ());
 	}
       close_all_handlers ();
       if (fc_handler)
